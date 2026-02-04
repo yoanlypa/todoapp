@@ -20,21 +20,13 @@ function NavItem(props: { to: string; label: string }) {
 
 export function AppShell() {
   return (
-    <div
-      style={{
-        minHeight: "100vh",
-        background: "#0b0f17",
-        color: "white",
-        display: "flex",
-        flexDirection: "column",
-      }}
-    >
+    <div className="min-h-screen flex flex-col bg-[color:var(--background-dark)] text-white">
       <header
         style={{
           position: "sticky",
           top: 0,
           zIndex: 10,
-          background: "rgba(11,15,23,0.85)",
+          background: "rgba(16,25,34,0.85)",
           backdropFilter: "blur(10px)",
           borderBottom: "1px solid rgba(255,255,255,0.06)",
           padding: "14px 16px",
@@ -43,8 +35,10 @@ export function AppShell() {
         <div style={{ fontWeight: 800, letterSpacing: 0.2 }}>todoapp</div>
       </header>
 
-      <main style={{ flex: 1, padding: 16, paddingBottom: 90, maxWidth: 980, width: "100%", margin: "0 auto" }}>
-        <Outlet />
+      <main className="flex-1 px-4 pb-24 pt-4">
+        <div className="mx-auto w-full max-w-[430px]">
+          <Outlet />
+        </div>
       </main>
 
       <nav
@@ -53,7 +47,7 @@ export function AppShell() {
           left: 0,
           right: 0,
           bottom: 0,
-          background: "rgba(11,15,23,0.9)",
+          background: "rgba(16,25,34,0.9)",
           backdropFilter: "blur(12px)",
           borderTop: "1px solid rgba(255,255,255,0.06)",
           padding: 10,
@@ -61,11 +55,12 @@ export function AppShell() {
       >
         <div
           style={{
-            maxWidth: 980,
+            maxWidth: 430,
             margin: "0 auto",
             display: "flex",
             gap: 8,
             justifyContent: "space-between",
+            padding: "0 16px",
           }}
         >
           <NavItem to="/" label="Today" />
