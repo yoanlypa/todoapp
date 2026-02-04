@@ -1,7 +1,7 @@
-import { Job } from "./job";
-import { JobItem } from "./job_item";
-import { InventoryItem } from "./inventory_item";
-import { EventLog } from "./event_log";
+import type  { Job } from "./job";
+import type  { JobItem } from "./job_item";
+import type  { InventoryItem } from "./inventory_item";
+import type { EventLog } from "./event_log";
 
 export type BackupFile = {
   schema_version: 1;

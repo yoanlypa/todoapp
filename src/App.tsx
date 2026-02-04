@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { ensureDbInitialized } from "../data/db/db";
+import { ensureDbInitialized } from "./data/db/db";
 
 export default function App() {
   useEffect(() => {
@@ -9,7 +9,7 @@ export default function App() {
   return (
     <div style={{ padding: 16 }}>
       <h1>todoapp</h1>
-      <p>DB initialized. Next: screens + first CRUD.</p>
+      <p>DB initialized correctly.</p>
     </div>
   );
 }

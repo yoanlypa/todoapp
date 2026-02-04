@@ -1,5 +1,7 @@
-export enum JobItemType {
-  NOTE = "NOTE",
-  BUY = "BUY",
-  MATERIAL = "MATERIAL",
-}
+export type JobItemType = "NOTE" | "BUY" | "MATERIAL";
+
+export const JobItemType = {
+  NOTE: "NOTE" as JobItemType,
+  BUY: "BUY" as JobItemType,
+  MATERIAL: "MATERIAL" as JobItemType,
+};

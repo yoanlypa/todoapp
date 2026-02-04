@@ -1,7 +1,7 @@
 import { db } from "../db/db";
 import { uuid } from "../../shared/utils/uuid";
 import { nowIso } from "../../shared/utils/dates";
-import { EventLog, EntityType } from "../../domain/models/event_log";
+import type { EventLog, EntityType } from "../../domain/models/event_log";
 
 export type AppendEventInput = {
   entity_type: EntityType;

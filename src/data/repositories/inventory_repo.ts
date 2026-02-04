@@ -2,7 +2,7 @@ import { db } from "../db/db";
 import { uuid } from "../../shared/utils/uuid";
 import { nowIso } from "../../shared/utils/dates";
 import { normalizeText } from "../../shared/utils/normalize_text";
-import { InventoryItem } from "../../domain/models/inventory_item";
+import type { InventoryItem } from "../../domain/models/inventory_item";
 import { InventoryLevel } from "../../domain/enums/inventory_level";
 import { eventLogRepo } from "./event_log_repo";
 import { jobItemRepo } from "./job_item_repo";

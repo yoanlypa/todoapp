@@ -1,7 +1,7 @@
 import { db } from "../db/db";
 import { uuid } from "../../shared/utils/uuid";
 import { nowIso } from "../../shared/utils/dates";
-import { JobItem } from "../../domain/models/job_item";
+import type { JobItem } from "../../domain/models/job_item";
 import { JobItemType } from "../../domain/enums/item_type";
 import { JobItemState } from "../../domain/enums/item_state";
 import { ItemUrgency } from "../../domain/enums/item_urgency";
