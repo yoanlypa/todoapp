@@ -1,298 +1,250 @@
 import { useEffect, useMemo, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 
 import { jobRepo } from "../../data/repositories/job_repo";
+import { jobItemRepo } from "../../data/repositories/job_item_repo";
+
 import { JobStatus } from "../../domain/enums/job_status";
-import { JobPriority } from "../../domain/enums/job_priority";
 
 import type { Job } from "../../domain/models/job";
+
 type JobStatusValue = typeof JobStatus[keyof typeof JobStatus];
-type JobPriorityValue = typeof JobPriority[keyof typeof JobPriority];
-type StatusFilter = "ALL" | (typeof JobStatus)[keyof typeof JobStatus];
-type PriorityFilter = "ALL" | (typeof JobPriority)[keyof typeof JobPriority];
+type StatusChip = "ALL" | JobStatusValue;
+
+type JobCardVM = {
+  job: Job;
+  pendingCount: number;
+  progressPct: number; // 0..100
+};
 
 export function JobsScreen() {
-    const navigate = useNavigate();
-    const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
 
-    const [jobs, setJobs] = useState<Job[]>([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState<string | null>(null);
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [cards, setCards] = useState<JobCardVM[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-    // UI state
-    const [search, setSearch] = useState(params.get("q") ?? "");
-    const [status, setStatus] = useState<StatusFilter>((params.get("status") as StatusFilter) ?? "ALL");
-    const [priority, setPriority] = useState<PriorityFilter>((params.get("priority") as PriorityFilter) ?? "ALL");
-    const [includeArchived, setIncludeArchived] = useState(params.get("archived") === "1");
+  const [search, setSearch] = useState("");
+  const [statusChip, setStatusChip] = useState<StatusChip>("ALL");
 
-    const filteredJobs = useMemo(() => {
-        // El repo ya filtra por status + archived + search básico.
-        // Aquí filtramos priority (para no complicar el repo aún).
-        if (priority === "ALL") return jobs;
-        return jobs.filter((j) => j.priority === priority);
-    }, [jobs, priority]);
+  async function load() {
+    setLoading(true);
+    setError(null);
+    try {
+      const list = await jobRepo.list({
+        status: statusChip === "ALL" ? undefined : statusChip,
+        includeArchived: false,
+        search: search.trim() ? search.trim() : undefined,
+      });
 
-    async function load() {
-        setLoading(true);
-        setError(null);
-        try {
-            const list = await jobRepo.list({
-                status: status === "ALL" ? undefined : status,
-                includeArchived,
-                search: search.trim() ? search.trim() : undefined,
-            });
-            setJobs(list);
-        } catch (e) {
-            setError(e instanceof Error ? e.message : "Failed to load jobs");
-        } finally {
-            setLoading(false);
-        }
+      // Enriquecer: pending_count + progress (MVP: calculado al vuelo)
+      const vms: JobCardVM[] = [];
+      for (const j of list) {
+        const items = await jobItemRepo.listByJob(j.id, { includeDone: true });
+        const total = items.length;
+        const done = items.filter((it) => it.state === "DONE").length;
+        const pending = total - done;
+        const pct = total === 0 ? 0 : Math.round((done / total) * 100);
+
+        vms.push({ job: j, pendingCount: pending, progressPct: pct });
+      }
+
+      setJobs(list);
+      setCards(vms);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load jobs");
+    } finally {
+      setLoading(false);
     }
+  }
 
-    // Sync URL params + reload
-    useEffect(() => {
-        const next: Record<string, string> = {};
-        if (search.trim()) next.q = search.trim();
-        if (status !== "ALL") next.status = status;
-        if (priority !== "ALL") next.priority = priority;
-        if (includeArchived) next.archived = "1";
-        setParams(next, { replace: true });
+  useEffect(() => {
+    load().catch(console.error);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [statusChip]);
 
-        load().catch(console.error);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [search, status, priority, includeArchived]);
+  // Debounce simple para search (sin librerías)
+  useEffect(() => {
+    const t = window.setTimeout(() => {
+      load().catch(console.error);
+    }, 250);
+    return () => window.clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
-    async function createJob() {
-        const title = prompt("Job title?");
-        if (!title || !title.trim()) return;
+  async function createJob() {
+    const title = prompt("Job title?");
+    if (!title || !title.trim()) return;
 
-        const created = await jobRepo.create({
-            title: title.trim(),
-            status: JobStatus.PREP,
-            priority: JobPriority.NORMAL,
-        });
+    const created = await jobRepo.create({
+      title: title.trim(),
+      status: JobStatus.PREP,
+      priority: "NORMAL",
+    });
 
-        // reload list and go to detail
-        await load();
-        navigate(`/jobs/${created.id}`);
-    }
+    await load();
+    navigate(`/jobs/${created.id}`);
+  }
 
-    async function archiveJob(jobId: string) {
-        await jobRepo.archive(jobId);
-        await load();
-    }
+  const chipClass = (active: boolean) =>
+    active
+      ? "bg-(--primary) text-white shadow-lg shadow-(--primary)/20"
+      : "bg-white dark:bg-(--card-dark) text-slate-600 dark:text-white border border-slate-200 dark:border-slate-700";
 
-    async function setJobStatus(jobId: string, nextStatus: JobStatusValue) {
-        await jobRepo.setStatus(jobId, nextStatus);
-        await load();
-    }
+  const listToRender = useMemo(() => cards, [cards]);
 
-    async function setJobPriority(jobId: string, nextPriority: JobPriorityValue) {
-        await jobRepo.setPriority(jobId, nextPriority);
-        await load();
-    }
-
-
-    return (
-        <div>
-            <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", gap: 12 }}>
-                <div>
-                    <h1 style={{ margin: 0 }}>Jobs</h1>
-                    <p style={{ marginTop: 6, opacity: 0.8 }}>List, filter, create. Click a job to open details.</p>
-                </div>
-
-                <button onClick={() => void createJob()} style={btnPrimary}>
-                    + New job
-                </button>
-            </div>
-
-            <div style={panel}>
-                <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center" }}>
-                    <input
-                        value={search}
-                        onChange={(e) => setSearch(e.target.value)}
-                        placeholder="Search (title / reference)"
-                        style={input}
-                    />
-
-                    <select value={status} onChange={(e) => setStatus(e.target.value as StatusFilter)} style={select}>
-                        <option value="ALL">Status: All</option>
-                        <option value={JobStatus.PREP}>PREP</option>
-                        <option value={JobStatus.EXEC}>EXEC</option>
-                        <option value={JobStatus.DONE}>DONE</option>
-                    </select>
-
-                    <select value={priority} onChange={(e) => setPriority(e.target.value as PriorityFilter)} style={select}>
-                        <option value="ALL">Priority: All</option>
-                        <option value={JobPriority.NORMAL}>NORMAL</option>
-                        <option value={JobPriority.HIGH}>HIGH</option>
-                        <option value={JobPriority.URGENT}>URGENT</option>
-                    </select>
-
-                    <label style={{ display: "flex", gap: 8, alignItems: "center", cursor: "pointer" }}>
-                        <input
-                            type="checkbox"
-                            checked={includeArchived}
-                            onChange={(e) => setIncludeArchived(e.target.checked)}
-                        />
-                        Include archived
-                    </label>
-
-                    <button onClick={() => void load()} style={btnGhost}>
-                        Refresh
-                    </button>
-                </div>
-            </div>
-
-            {loading ? <p style={{ opacity: 0.8 }}>Loading…</p> : null}
-            {error ? <p style={{ color: "#ff9b9b" }}>{error}</p> : null}
-
-            <div style={{ display: "grid", gap: 10 }}>
-                {filteredJobs.length === 0 ? (
-                    <div style={empty}>
-                        <div style={{ fontWeight: 800 }}>No jobs</div>
-                        <div style={{ opacity: 0.8, marginTop: 6 }}>Create your first job to start adding notes/buy/materials.</div>
-                    </div>
-                ) : (
-                    filteredJobs.map((j) => (
-                        <div key={j.id} style={card}>
-                            <div style={{ display: "flex", justifyContent: "space-between", gap: 10 }}>
-                                <div style={{ minWidth: 0 }}>
-                                    <Link to={`/jobs/${j.id}`} style={titleLink}>
-                                        {j.title}
-                                    </Link>
-                                    <div style={{ fontSize: 12, opacity: 0.8, marginTop: 4 }}>
-                                        {j.status} • {j.priority} • {j.archived_at ? "ARCHIVED" : "ACTIVE"}
-                                    </div>
-                                </div>
-
-                                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-                                    <select
-                                        value={j.status}
-                                        onChange={(e) =>
-                                        void setJobStatus(j.id, e.target.value as JobStatusValue)
-                                        }
-                                        style={selectSmall}
-                                        title="Set status"
-                                    >
-                                        <option value={JobStatus.PREP}>PREP</option>
-                                        <option value={JobStatus.EXEC}>EXEC</option>
-                                        <option value={JobStatus.DONE}>DONE</option>
-                                    </select>
-
-                                    <select
-                                        value={j.priority}
-                                        onChange={(e) =>
-                                        void setJobPriority(j.id, e.target.value as JobPriorityValue)
-                                        }
-
-                                        style={selectSmall}
-                                        title="Set priority"
-                                    >
-                                        <option value={JobPriority.NORMAL}>NORMAL</option>
-                                        <option value={JobPriority.HIGH}>HIGH</option>
-                                        <option value={JobPriority.URGENT}>URGENT</option>
-                                    </select>
-
-                                    <button onClick={() => void archiveJob(j.id)} style={btnDanger} disabled={!!j.archived_at}>
-                                        Archive
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    ))
-                )}
-            </div>
+  return (
+    <div className="min-h-[calc(100dvh-140px)]">
+      {/* Top area */}
+      <header className="sticky top-0 z-20 bg-(--background-dark) pt-2">
+        <div className="flex items-center justify-between px-4 pb-2 pt-2">
+          <p className="text-[32px] font-bold leading-tight tracking-tight">Trabajos</p>
+          <div className="flex size-10 items-center justify-center rounded-full bg-slate-200 dark:bg-(--card-dark) text-white/90">
+            <span className="material-symbols-outlined">account_circle</span>
+          </div>
         </div>
-    );
+
+        {/* SearchBar */}
+        <div className="px-4 pb-3">
+          <label className="flex h-12 w-full min-w-40 flex-col">
+            <div className="flex h-full w-full flex-1 items-stretch rounded-xl shadow-sm">
+              <div className="flex items-center justify-center rounded-l-xl bg-white pl-4 text-slate-400 dark:bg-(--card-dark) dark:text-(--muted)">
+                <span className="material-symbols-outlined">search</span>
+              </div>
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Buscar por nombre o ref #"
+                className="h-full w-full min-w-0 flex-1 rounded-r-xl bg-white px-4 pl-2 text-base text-slate-900 placeholder:text-slate-400 focus:outline-none dark:bg-(--card-dark) dark:text-white dark:placeholder:text-(--muted)"
+              />
+            </div>
+          </label>
+        </div>
+
+        {/* Chips */}
+        <div className="no-scrollbar flex gap-3 overflow-x-auto px-4 pb-3">
+          <button
+            className={`flex h-9 shrink-0 items-center justify-center gap-x-2 rounded-full px-5 ${chipClass(statusChip === "ALL")}`}
+            onClick={() => setStatusChip("ALL")}
+          >
+            <span className="text-sm font-medium leading-normal">Todos</span>
+          </button>
+
+          <button
+            className={`flex h-9 shrink-0 items-center justify-center gap-x-2 rounded-full px-5 ${chipClass(statusChip === JobStatus.PREP)}`}
+            onClick={() => setStatusChip(JobStatus.PREP)}
+          >
+            <span className="text-sm font-medium leading-normal">Preparación</span>
+          </button>
+
+          <button
+            className={`flex h-9 shrink-0 items-center justify-center gap-x-2 rounded-full px-5 ${chipClass(statusChip === JobStatus.EXEC)}`}
+            onClick={() => setStatusChip(JobStatus.EXEC)}
+          >
+            <span className="text-sm font-medium leading-normal">Ejecución</span>
+          </button>
+
+          <button
+            className={`flex h-9 shrink-0 items-center justify-center gap-x-2 rounded-full px-5 ${chipClass(statusChip === JobStatus.DONE)}`}
+            onClick={() => setStatusChip(JobStatus.DONE)}
+          >
+            <span className="text-sm font-medium leading-normal">Terminado</span>
+          </button>
+        </div>
+      </header>
+
+      {/* List */}
+      <main className="flex flex-col gap-4 px-4 pb-24 pt-2">
+        {loading ? <p className="text-(--muted)">Loading…</p> : null}
+        {error ? <p className="text-red-300">{error}</p> : null}
+
+        {!loading && jobs.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-(--border-dark) bg-(--card-dark)/40 p-4 text-(--muted)">
+            No hay trabajos todavía. Pulsa “+” para crear el primero.
+          </div>
+        ) : null}
+
+        {listToRender.map((vm) => (
+          <JobCard key={vm.job.id} vm={vm} />
+        ))}
+
+        <div className="h-24" />
+      </main>
+
+      {/* FAB */}
+      <button
+        onClick={() => void createJob()}
+        className="fixed bottom-6 right-6 z-50 flex size-16 items-center justify-center rounded-full bg-(--primary) text-white shadow-xl shadow-(--primary)/40 transition-transform hover:scale-105 active:scale-95"
+        title="Add job"
+      >
+        <span className="material-symbols-outlined text-[32px]">add</span>
+      </button>
+    </div>
+  );
 }
 
-// ---- styles (inline for now, later we move to Tailwind) ----
-const panel: React.CSSProperties = {
-    margin: "14px 0 16px",
-    padding: 12,
-    borderRadius: 14,
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.03)",
-};
+function JobCard(props: { vm: JobCardVM }) {
+  const { job, pendingCount, progressPct } = props.vm;
 
-const card: React.CSSProperties = {
-    padding: 14,
-    borderRadius: 16,
-    border: "1px solid rgba(255,255,255,0.08)",
-    background: "rgba(255,255,255,0.03)",
-};
+  const statusLabel =
+    job.status === JobStatus.EXEC
+      ? { text: "En ejecución", cls: "text-(--primary)" }
+      : job.status === JobStatus.PREP
+      ? { text: "Preparación", cls: "text-(--muted)" }
+      : { text: "Terminado", cls: "text-emerald-400" };
 
-const empty: React.CSSProperties = {
-    padding: 18,
-    borderRadius: 16,
-    border: "1px dashed rgba(255,255,255,0.15)",
-    background: "rgba(255,255,255,0.02)",
-};
+  const urgentBadge = job.priority === "URGENT";
 
-const input: React.CSSProperties = {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(0,0,0,0.2)",
-    color: "white",
-    minWidth: 240,
-    outline: "none",
-};
+  return (
+    <div className="overflow-hidden rounded-xl border border-slate-100 bg-white shadow-sm dark:border-slate-800 dark:bg-(--card-dark)">
+      {/* Imagen placeholder (luego: field optional en Job o media local) */}
+      <div className="aspect-video w-full bg-gradient-to-br from-white/10 to-black/20 dark:from-white/5 dark:to-black/40" />
 
-const select: React.CSSProperties = {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(0,0,0,0.2)",
-    color: "white",
-    outline: "none",
-};
+      <div className="flex flex-col gap-3 p-4">
+        <div className="flex items-start justify-between">
+          <div className="flex flex-col">
+            <p className={`text-xs font-bold uppercase tracking-wider ${statusLabel.cls}`}>
+              {statusLabel.text}
+            </p>
+            <p className="text-xl font-bold leading-tight tracking-tight text-slate-900 dark:text-white">
+              {job.title}
+            </p>
+          </div>
 
-const selectSmall: React.CSSProperties = {
-    ...select,
-    padding: "8px 10px",
-    borderRadius: 12,
-    fontSize: 12,
-};
+          {urgentBadge ? (
+            <span className="rounded bg-(--accent-yellow) px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-900">
+              Urgente
+            </span>
+          ) : null}
+        </div>
 
-const btnPrimary: React.CSSProperties = {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,255,255,0.10)",
-    color: "white",
-    fontWeight: 800,
-    cursor: "pointer",
-};
+        <div className="flex flex-col gap-1">
+          <p className="text-sm font-normal leading-normal text-slate-500 dark:text-(--muted)">
+            {job.reference ? `Ref #${job.reference}` : "Ref —"}
+          </p>
 
-const btnGhost: React.CSSProperties = {
-    padding: "10px 12px",
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "transparent",
-    color: "rgba(255,255,255,0.9)",
-    fontWeight: 700,
-    cursor: "pointer",
-};
+          <div className="mt-2 flex flex-col gap-2">
+            <div className="flex items-center justify-between">
+              <p className="text-xs font-medium text-slate-700 dark:text-white">
+                {pendingCount} items pendientes
+              </p>
+              <p className="text-xs text-slate-500 dark:text-slate-400">{progressPct}%</p>
+            </div>
 
-const btnDanger: React.CSSProperties = {
-    padding: "8px 10px",
-    borderRadius: 12,
-    border: "1px solid rgba(255,255,255,0.12)",
-    background: "rgba(255,80,80,0.12)",
-    color: "white",
-    fontWeight: 800,
-    cursor: "pointer",
-};
+            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-700">
+              <div className="h-full rounded-full bg-(--primary)" style={{ width: `${progressPct}%` }} />
+            </div>
+          </div>
+        </div>
 
-const titleLink: React.CSSProperties = {
-    display: "inline-block",
-    color: "white",
-    textDecoration: "none",
-    fontWeight: 900,
-    maxWidth: "100%",
-    overflow: "hidden",
-    textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-};
+        <Link
+          to={`/jobs/${job.id}`}
+          className="mt-2 flex h-10 w-full items-center justify-center rounded-lg bg-(--primary)/10 text-sm font-semibold text-(--primary) transition-colors dark:bg-(--primary)/20 dark:text-white"
+        >
+          Ver detalles
+        </Link>
+      </div>
+    </div>
+  );
+}
